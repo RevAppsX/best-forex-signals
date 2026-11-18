@@ -22,32 +22,43 @@ DAILY_TIPS = [
     "💡 <b>Trading Psychology:</b> Wait for candle close confirmation above/below key pivot levels rather than chasing sudden news spikes.",
 ]
 
+# Create a custom session with a browser user-agent to prevent Yahoo Finance from blocking/hanging cloud runners
+session = requests.Session()
+session.headers.update(
+    {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+)
+
 
 def get_pair_stats(ticker_symbol: str, decimals: int = 4):
-    """Fetches latest price, % change, and classic Pivot levels."""
-    data = yf.Ticker(ticker_symbol).history(period="5d", interval="1d")
-    if len(data) < 2:
+    """Fetches latest price, % change, and classic Pivot levels safely with timeout."""
+    try:
+        ticker = yf.Ticker(ticker_symbol, session=session)
+        data = ticker.history(period="5d", interval="1d", timeout=10)
+        if len(data) < 2:
+            return None
+
+        prev = data.iloc[-2]
+        curr = data.iloc[-1]
+
+        last_price = float(curr["Close"])
+        prev_close = float(prev["Close"])
+        pct_change = ((last_price - prev_close) / prev_close) * 100
+
+        pivot = (float(prev["High"]) + float(prev["Low"]) + prev_close) / 3
+        r1 = (2 * pivot) - float(prev["Low"])
+        s1 = (2 * pivot) - float(prev["High"])
+
+        arrow = "🟢 ▲" if pct_change >= 0 else "🔴 ▼"
+        return {
+            "price": f"{last_price:.{decimals}f}",
+            "change": f"{arrow} {pct_change:+.2f}%",
+            "pivot": f"{pivot:.{decimals}f}",
+            "r1": f"{r1:.{decimals}f}",
+            "s1": f"{s1:.{decimals}f}",
+        }
+    except Exception as e:
+        print(f"⚠️ Error fetching {ticker_symbol}: {e}")
         return None
-
-    prev = data.iloc[-2]
-    curr = data.iloc[-1]
-
-    last_price = float(curr["Close"])
-    prev_close = float(prev["Close"])
-    pct_change = ((last_price - prev_close) / prev_close) * 100
-
-    pivot = (float(prev["High"]) + float(prev["Low"]) + prev_close) / 3
-    r1 = (2 * pivot) - float(prev["Low"])
-    s1 = (2 * pivot) - float(prev["High"])
-
-    arrow = "🟢 ▲" if pct_change >= 0 else "🔴 ▼"
-    return {
-        "price": f"{last_price:.{decimals}f}",
-        "change": f"{arrow} {pct_change:+.2f}%",
-        "pivot": f"{pivot:.{decimals}f}",
-        "r1": f"{r1:.{decimals}f}",
-        "s1": f"{s1:.{decimals}f}",
-    }
 
 
 def build_market_post() -> str:
