@@ -48,8 +48,43 @@ if not BOT_TOKEN or not CHAT_ID:
         "   Local:  set TELEGRAM_BOT_TOKEN=... & set TELEGRAM_CHAT_ID=..."
     )
 
-APP_LINK = "https://play.google.com/store/apps/details?id=com.revapps.bestforexbrokers"
+# --- Apps & Broker Links ---
+MAIN_APP_NAME = "Best Forex Brokers"
+MAIN_APP_LINK = "https://play.google.com/store/apps/details?id=com.revapps.bestforexbrokers"
 BROKER_LINK = "https://clicks.pipaffiliates.com/c?m=131292&c=98704"
+
+# Google Play Developer page or portfolio link (for your other 200+ apps)
+PLAY_STORE_DEV_LINK = os.environ.get(
+    "PLAY_STORE_DEV_LINK",
+    "https://play.google.com/store/apps/developer?id=RevApps",
+)
+
+# Optional rotation of your other trading/crypto apps (picked by day of month)
+# Add any package names / URLs from your 200+ portfolio here
+ROTATING_APPS = [
+    {
+        "name": "Live Currency & Crypto Rates",
+        "url": PLAY_STORE_DEV_LINK,
+        "tagline": "Real-time FX & Crypto Rates",
+    },
+    {
+        "name": "Forex Margin & Pip Calculator",
+        "url": PLAY_STORE_DEV_LINK,
+        "tagline": "Calculate Lots, Pip Value & Margin in Seconds",
+    },
+    {
+        "name": "Gold & Commodities Live Tracker",
+        "url": PLAY_STORE_DEV_LINK,
+        "tagline": "Track Live Bullion & Energy Prices",
+    },
+    {
+        "name": "Forex News & Economic Calendar",
+        "url": PLAY_STORE_DEV_LINK,
+        "tagline": "Daily Macro Releases & Central Bank Alerts",
+    },
+]
+
+MYFXBOOK_CALENDAR_LINK = "https://www.myfxbook.com/forex-economic-calendar"
 
 POST_HOUR = 9
 POST_MINUTE = 0
@@ -250,26 +285,32 @@ def generate_chart(ticker_symbol, pair_name, pivot, r1, s1):
 # ======================== MESSAGE BUILDING ========================
 
 def build_calendar_section(events):
-    """Format economic calendar events as HTML."""
+    """Format economic calendar events as HTML with a direct Myfxbook link."""
+    lines = ["⚠️ <b>HIGH-IMPACT ECONOMIC EVENTS TODAY:</b>"]
     if not events:
-        return "✅ No high-impact USD/EUR/GBP events scheduled today.\n"
+        lines.append("✅ No high-impact USD/EUR/GBP events scheduled today.")
+    else:
+        flags = {"USD": "🇺🇸", "EUR": "🇪🇺", "GBP": "🇬🇧"}
+        for ev in events[:5]:
+            flag     = flags.get(ev.get("country", ""), "🌐")
+            time_str = ev.get("date", "")[11:16]
+            title    = ev.get("title", "Unknown")
+            forecast = ev.get("forecast", "")
+            fc_part  = f" (Forecast: {forecast})" if forecast else ""
+            lines.append(f"🕐 {time_str} UTC — {flag} {title}{fc_part}")
 
-    flags = {"USD": "🇺🇸", "EUR": "🇪🇺", "GBP": "🇬🇧"}
-    lines = ["⚠️ <b>HIGH-IMPACT EVENTS TODAY:</b>"]
-    for ev in events[:5]:
-        flag     = flags.get(ev.get("country", ""), "🌐")
-        time_str = ev.get("date", "")[11:16]
-        title    = ev.get("title", "Unknown")
-        forecast = ev.get("forecast", "")
-        fc_part  = f" (Forecast: {forecast})" if forecast else ""
-        lines.append(f"🕐 {time_str} UTC — {flag} {title}{fc_part}")
-    return "\n".join(lines) + "\n"
+    lines.append(
+        f"👉 <b><a href='{MYFXBOOK_CALENDAR_LINK}'>Live Calendar on Myfxbook</a></b>\n"
+    )
+    return "\n".join(lines)
 
 
 def build_market_post(pair_data, calendar_events):
     """Build the main Telegram market brief in HTML."""
-    date_str = datetime.now(timezone.utc).strftime("%d %b %Y")
-    tip = DAILY_TIPS[datetime.now(timezone.utc).day % len(DAILY_TIPS)]
+    now_utc = datetime.now(timezone.utc)
+    date_str = now_utc.strftime("%d %b %Y")
+    tip = DAILY_TIPS[now_utc.day % len(DAILY_TIPS)]
+    today_app = ROTATING_APPS[now_utc.day % len(ROTATING_APPS)]
 
     lines = [f"📊 <b>DAILY MARKET BRIEF & KEY LEVELS ({date_str})</b>\n"]
 
@@ -292,7 +333,11 @@ def build_market_post(pair_data, calendar_events):
         f"🚨 <b>TOP BROKER OFFER | 100% BONUS UP TO $200:</b>\n"
         f"👉 <b><a href='{BROKER_LINK}'>CLICK HERE TO CLAIM YOUR BONUS</a></b>\n\n"
         f"📱 <b>COMPARE ALL REGULATED BROKERS & LIVE SPREADS:</b>\n"
-        f"👉 <b><a href='{APP_LINK}'>DOWNLOAD OUR FREE ANDROID APP</a></b>"
+        f"👉 <b><a href='{MAIN_APP_LINK}'>DOWNLOAD {MAIN_APP_NAME.upper()}</a></b>\n\n"
+        f"🛠️ <b>FEATURED TRADER TOOL TODAY:</b>\n"
+        f"👉 <b><a href='{today_app['url']}'>{today_app['name']} — {today_app['tagline']}</a></b>\n\n"
+        f"🌐 <b>EXPLORE OUR 200+ APPS ON GOOGLE PLAY:</b>\n"
+        f"👉 <b><a href='{PLAY_STORE_DEV_LINK}'>VIEW DEVELOPER PORTFOLIO</a></b>"
     )
     return "\n".join(lines)
 
@@ -369,13 +414,23 @@ def post_to_discord(pair_data, calendar_events):
         if calendar_events:
             cal_lines = [
                 f"{flags.get(ev.get('country'), '🌐')} {ev.get('title', '?')}"
-                for ev in calendar_events[:3]
+                for ev in calendar_events[:4]
             ]
+            cal_lines.append(f"[📅 View Live Calendar on Myfxbook]({MYFXBOOK_CALENDAR_LINK})")
             fields.append({
                 "name": "⚠️ High-Impact Events Today",
                 "value": "\n".join(cal_lines),
                 "inline": False,
             })
+
+        fields.append({
+            "name": "📱 Trading Apps & Tools",
+            "value": (
+                f"• [{MAIN_APP_NAME}]({MAIN_APP_LINK}) — Compare Regulated Brokers\n"
+                f"• [Explore 200+ Apps on Google Play]({PLAY_STORE_DEV_LINK})"
+            ),
+            "inline": False,
+        })
 
         embed = {
             "title": f"📊 Daily Market Brief — {date_str}",
