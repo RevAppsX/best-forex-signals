@@ -30,23 +30,43 @@ session.headers.update(
 
 
 def get_pair_stats(ticker_symbol: str, decimals: int = 4):
-    """Fetches latest price, % change, and classic Pivot levels safely with timeout."""
+    """Fetches latest price and calculates pivot levels via Yahoo Finance direct API with strict timeout."""
     try:
-        ticker = yf.Ticker(ticker_symbol, session=session)
-        data = ticker.history(period="5d", interval="1d", timeout=10)
-        if len(data) < 2:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_symbol}?range=5d&interval=1d"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        response = requests.get(url, headers=headers, timeout=8)
+        data = response.json()
+
+        result = data["chart"]["result"][0]
+        timestamps = result["timestamp"]
+        quotes = result["indicators"]["quote"][0]
+
+        closes = quotes["close"]
+        highs = quotes["high"]
+        lows = quotes["low"]
+
+        # Filter out None values
+        valid_indices = [
+            i
+            for i, c in enumerate(closes)
+            if c is not None and highs[i] is not None and lows[i] is not None
+        ]
+        if len(valid_indices) < 2:
             return None
 
-        prev = data.iloc[-2]
-        curr = data.iloc[-1]
+        curr_idx = valid_indices[-1]
+        prev_idx = valid_indices[-2]
 
-        last_price = float(curr["Close"])
-        prev_close = float(prev["Close"])
+        last_price = float(closes[curr_idx])
+        prev_close = float(closes[prev_idx])
+        prev_high = float(highs[prev_idx])
+        prev_low = float(lows[prev_idx])
+
         pct_change = ((last_price - prev_close) / prev_close) * 100
 
-        pivot = (float(prev["High"]) + float(prev["Low"]) + prev_close) / 3
-        r1 = (2 * pivot) - float(prev["Low"])
-        s1 = (2 * pivot) - float(prev["High"])
+        pivot = (prev_high + prev_low + prev_close) / 3
+        r1 = (2 * pivot) - prev_low
+        s1 = (2 * pivot) - prev_high
 
         arrow = "🟢 ▲" if pct_change >= 0 else "🔴 ▼"
         return {
@@ -57,7 +77,7 @@ def get_pair_stats(ticker_symbol: str, decimals: int = 4):
             "s1": f"{s1:.{decimals}f}",
         }
     except Exception as e:
-        print(f"⚠️ Error fetching {ticker_symbol}: {e}")
+        print(f"⚠️ Error fetching {ticker_symbol} via API: {e}")
         return None
 
 
