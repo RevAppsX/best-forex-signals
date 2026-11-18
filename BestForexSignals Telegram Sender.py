@@ -4,8 +4,17 @@ import requests
 import os
 
 # ================= CONFIGURATION =================
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "9142497477:AAG7Bdl7gQa6jgEjHQ0P95gs7dJuctiwM0g")
-CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003177467495")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+if not BOT_TOKEN or not CHAT_ID:
+    raise SystemExit(
+        "❌ Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID environment variables.\n"
+        "   • GitHub Actions: set them in Settings → Secrets → Actions.\n"
+        "   • Local: set them before running, e.g.:\n"
+        "       set TELEGRAM_BOT_TOKEN=your_token\n"
+        "       set TELEGRAM_CHAT_ID=your_chat_id"
+    )
 
 APP_LINK = "https://play.google.com/store/apps/details?id=com.revapps.bestforexbrokers"
 BROKER_LINK = "https://clicks.pipaffiliates.com/c?m=131292&c=98704"

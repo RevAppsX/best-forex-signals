@@ -8,6 +8,7 @@ on:
 jobs:
   send-signal:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests yfinance
+          pip install requests
 
       - name: Run Telegram Sender Script
         env:
