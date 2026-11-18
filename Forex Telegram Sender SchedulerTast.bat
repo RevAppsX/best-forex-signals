@@ -1,0 +1,1 @@
+schtasks /create /tn "BestForexAutoposter" /tr "\"python.exe\" \"D:\Python Projects\BestForexBroker Signals Sender to Telegram\BestForexSignals Telegram Sender.py\"" /sc daily /st 09:00 /f
