@@ -128,4 +128,4 @@ if __name__ == "__main__":
                 time.sleep(60)
         else:
             # Check every 30 seconds
-            time.sleep(30)are 
+            time.sleep(30)
