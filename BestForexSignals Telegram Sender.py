@@ -1,11 +1,11 @@
 from datetime import datetime
 import time
 import requests
-import yfinance as yf
+import os
 
 # ================= CONFIGURATION =================
-BOT_TOKEN = "9142497477:AAG7Bdl7gQa6jgEjHQ0P95gs7dJuctiwM0g"
-CHAT_ID = "-1003177467495"
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "9142497477:AAG7Bdl7gQa6jgEjHQ0P95gs7dJuctiwM0g")
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003177467495")
 
 APP_LINK = "https://play.google.com/store/apps/details?id=com.revapps.bestforexbrokers"
 BROKER_LINK = "https://clicks.pipaffiliates.com/c?m=131292&c=98704"
@@ -140,23 +140,31 @@ def send_telegram_message(html_text: str):
 
 
 if __name__ == "__main__":
-    print(
-        f"🤖 Telegram Autoposter started! Scheduled to post daily at {POST_HOUR:02d}:{POST_MINUTE:02d}."
-    )
-
-    while True:
-        now = datetime.now()
-        # Check if current time matches target hour and minute
-        if now.hour == POST_HOUR and now.minute == POST_MINUTE:
-            try:
-                print("⏳ Generating and sending daily market brief...")
-                post = build_market_post()
-                send_telegram_message(post)
-                # Sleep for 61 seconds so it doesn't trigger twice within the same minute
-                time.sleep(61)
-            except Exception as e:
-                print(f"❌ Error sending post: {e}")
-                time.sleep(60)
-        else:
-            # Check every 30 seconds
-            time.sleep(30)
+    # Detect if running in GitHub Actions (CI) or locally
+    if os.environ.get("GITHUB_ACTIONS"):
+        # --- CI MODE: run once immediately and exit ---
+        print("🤖 Running in GitHub Actions — sending signal now...")
+        try:
+            post = build_market_post()
+            send_telegram_message(post)
+        except Exception as e:
+            print(f"❌ Error sending post: {e}")
+            raise SystemExit(1)
+    else:
+        # --- LOCAL MODE: loop until the scheduled time ---
+        print(
+            f"🤖 Telegram Autoposter started! Scheduled to post daily at {POST_HOUR:02d}:{POST_MINUTE:02d}."
+        )
+        while True:
+            now = datetime.now()
+            if now.hour == POST_HOUR and now.minute == POST_MINUTE:
+                try:
+                    print("⏳ Generating and sending daily market brief...")
+                    post = build_market_post()
+                    send_telegram_message(post)
+                    time.sleep(61)
+                except Exception as e:
+                    print(f"❌ Error sending post: {e}")
+                    time.sleep(60)
+            else:
+                time.sleep(30)
