@@ -1,0 +1,31 @@
+name: Daily Sentiment Poll
+
+on:
+  schedule:
+    # Monday to Friday at 11:30 UTC (14:30 TRT/UTC+3, right before London-NY overlap)
+    - cron: '30 11 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  send-poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Run Sentiment Poll Script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python sentiment_poll.py
