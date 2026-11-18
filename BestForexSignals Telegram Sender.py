@@ -175,21 +175,38 @@ def get_pair_data(pair):
 
 
 def get_economic_calendar():
-    """Fetch today's high-impact economic events (ForexFactory free feed)."""
+    """Fetch and parse this week's high-impact economic events from ForexFactory feed."""
     try:
         url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         events = resp.json()
 
-        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        high_impact = [
-            ev for ev in events
-            if ev.get("impact") == "High"
-            and ev.get("country") in ("USD", "EUR", "GBP")
-            and ev.get("date", "")[:10] == today_str
-        ]
-        return high_impact
+        now_utc = datetime.now(timezone.utc)
+        today_date = now_utc.date()
+
+        parsed = []
+        for ev in events:
+            if ev.get("impact") == "High" and ev.get("country") in ("USD", "EUR", "GBP"):
+                try:
+                    dt = datetime.fromisoformat(ev["date"]).astimezone(timezone.utc)
+                except Exception:
+                    continue
+
+                parsed.append({
+                    "title": ev.get("title", "Event"),
+                    "country": ev.get("country", ""),
+                    "forecast": ev.get("forecast", ""),
+                    "previous": ev.get("previous", ""),
+                    "dt": dt,
+                    "date_str": dt.strftime("%Y-%m-%d"),
+                    "day_name": dt.strftime("%a"),
+                    "time_str": dt.strftime("%H:%M"),
+                    "is_today": dt.date() == today_date,
+                    "is_upcoming": dt >= now_utc,
+                })
+
+        return parsed
     except Exception as e:
         print(f"⚠️  Economic calendar unavailable: {e}")
         return []
@@ -285,19 +302,47 @@ def generate_chart(ticker_symbol, pair_name, pivot, r1, s1):
 # ======================== MESSAGE BUILDING ========================
 
 def build_calendar_section(events):
-    """Format economic calendar events as HTML with a direct Myfxbook link."""
-    lines = ["⚠️ <b>HIGH-IMPACT ECONOMIC EVENTS TODAY:</b>"]
+    """Format economic calendar: Full week overview on Mondays; daily + upcoming on Tue-Fri."""
+    now_utc = datetime.now(timezone.utc)
+    flags = {"USD": "🇺🇸", "EUR": "🇪🇺", "GBP": "🇬🇧"}
+
     if not events:
-        lines.append("✅ No high-impact USD/EUR/GBP events scheduled today.")
+        return (
+            "⚠️ <b>ECONOMIC CALENDAR:</b>\n"
+            "✅ No high-impact USD/EUR/GBP events scheduled this week.\n"
+            f"👉 <b><a href='{MYFXBOOK_CALENDAR_LINK}'>Live Calendar on Myfxbook</a></b>\n"
+        )
+
+    lines = []
+    # If Monday: Show full weekly roadmap
+    if now_utc.weekday() == 0:
+        lines.append("🗓️ <b>THIS WEEK'S HIGH-IMPACT MACRO ROADMAP:</b>")
+        for ev in events[:7]:
+            flag = flags.get(ev["country"], "🌐")
+            fc_part = f" (FC: {ev['forecast']})" if ev["forecast"] else ""
+            lines.append(
+                f"• <b>{ev['day_name']}</b> {ev['time_str']} UTC — {flag} {ev['title']}{fc_part}"
+            )
     else:
-        flags = {"USD": "🇺🇸", "EUR": "🇪🇺", "GBP": "🇬🇧"}
-        for ev in events[:5]:
-            flag     = flags.get(ev.get("country", ""), "🌐")
-            time_str = ev.get("date", "")[11:16]
-            title    = ev.get("title", "Unknown")
-            forecast = ev.get("forecast", "")
-            fc_part  = f" (Forecast: {forecast})" if forecast else ""
-            lines.append(f"🕐 {time_str} UTC — {flag} {title}{fc_part}")
+        # Tue-Fri: Show today's releases first
+        today_events = [ev for ev in events if ev["is_today"]]
+        if today_events:
+            lines.append("⚠️ <b>TODAY'S HIGH-IMPACT EVENTS:</b>")
+            for ev in today_events[:5]:
+                flag = flags.get(ev["country"], "🌐")
+                fc_part = f" (Forecast: {ev['forecast']})" if ev["forecast"] else ""
+                lines.append(f"🕐 {ev['time_str']} UTC — {flag} {ev['title']}{fc_part}")
+        else:
+            lines.append("⚠️ <b>TODAY'S ECONOMIC EVENTS:</b>")
+            lines.append("✅ No high-impact releases scheduled for today.")
+            # Show next upcoming big event of the week
+            upcoming = [ev for ev in events if ev["is_upcoming"]]
+            if upcoming:
+                next_ev = upcoming[0]
+                flag = flags.get(next_ev["country"], "🌐")
+                lines.append(
+                    f"👀 <i>Next Major: {next_ev['day_name']} {next_ev['time_str']} UTC — {flag} {next_ev['title']}</i>"
+                )
 
     lines.append(
         f"👉 <b><a href='{MYFXBOOK_CALENDAR_LINK}'>Live Calendar on Myfxbook</a></b>\n"
@@ -412,13 +457,15 @@ def post_to_discord(pair_data, calendar_events):
             })
 
         if calendar_events:
+            today_evs = [ev for ev in calendar_events if ev.get("is_today")]
+            show_evs = today_evs if today_evs else calendar_events[:4]
             cal_lines = [
-                f"{flags.get(ev.get('country'), '🌐')} {ev.get('title', '?')}"
-                for ev in calendar_events[:4]
+                f"{flags.get(ev.get('country'), '🌐')} **{ev.get('day_name', '')} {ev.get('time_str', '')} UTC** — {ev.get('title', '?')}"
+                for ev in show_evs[:4]
             ]
             cal_lines.append(f"[📅 View Live Calendar on Myfxbook]({MYFXBOOK_CALENDAR_LINK})")
             fields.append({
-                "name": "⚠️ High-Impact Events Today",
+                "name": "⚠️ High-Impact Economic Events",
                 "value": "\n".join(cal_lines),
                 "inline": False,
             })
