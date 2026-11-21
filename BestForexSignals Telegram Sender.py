@@ -63,10 +63,14 @@ MAIN_APP_LINK = "https://play.google.com/store/apps/details?id=com.revapps.bestf
 BROKER_LINK = "https://clicks.pipaffiliates.com/c?m=131292&c=98704"
 WHATSAPP_CHANNEL_LINK = "https://whatsapp.com/channel/0029Vb9Wpao8F2p6YTGzIP2g"
 
-# Optional: WhatsApp API integration (Green API)
+# Optional: WhatsApp API integration (Green API for Groups)
 WHATSAPP_INSTANCE_ID = os.environ.get("WHATSAPP_INSTANCE_ID")
 WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN")
 WHATSAPP_CHAT_ID = os.environ.get("WHATSAPP_CHAT_ID")
+
+# Optional: WhatsApp Channel direct publishing (Whapi.cloud for @newsletter Channels)
+WHAPI_API_TOKEN = os.environ.get("WHAPI_API_TOKEN")
+WHAPI_CHANNEL_ID = os.environ.get("WHAPI_CHANNEL_ID")
 
 # Optional: Facebook Group integration (Meta Graph API)
 FACEBOOK_GROUP_ID = os.environ.get("FACEBOOK_GROUP_ID")
@@ -756,6 +760,72 @@ def post_to_whatsapp(html_text, photo_path=None):
         print(f"⚠️  WhatsApp posting failed: {e}")
 
 
+def post_to_whatsapp_channel_whapi(html_text, photo_path=None):
+    """Post directly into WhatsApp Channel (@newsletter) via Whapi.cloud API."""
+    if not WHAPI_API_TOKEN:
+        return
+    try:
+        import base64
+        import re
+
+        wa_text = html_text.replace("<b>", "*").replace("</b>", "*")
+        wa_text = wa_text.replace("<i>", "_").replace("</i>", "_")
+        wa_text = wa_text.replace("<code>", "```").replace("</code>", "```")
+        wa_text = re.sub(r"<a href='([^']+)'>([^<]+)</a>", r"\2 (\1)", wa_text)
+        wa_text = re.sub(r"<[^>]+>", "", wa_text)
+
+        headers = {
+            "Authorization": f"Bearer {WHAPI_API_TOKEN}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        channel_id = WHAPI_CHANNEL_ID
+        # If channel ID not explicitly set, auto-discover via Whapi newsletters list
+        if not channel_id:
+            try:
+                nl_resp = requests.get("https://gate.whapi.cloud/newsletters", headers=headers, timeout=15)
+                if nl_resp.ok:
+                    newsletters = nl_resp.json().get("newsletters", [])
+                    if newsletters:
+                        channel_id = newsletters[0].get("id")
+                        print(f"📡 Whapi auto-detected channel: {newsletters[0].get('name')} ({channel_id})")
+            except Exception as e:
+                print(f"⚠️  Whapi newsletter lookup: {e}")
+
+        if not channel_id:
+            print("⚠️  Whapi: No WhatsApp Channel ID found. Set WHAPI_CHANNEL_ID.")
+            return
+
+        if not channel_id.endswith("@newsletter"):
+            channel_id = f"{channel_id}@newsletter"
+
+        if photo_path and os.path.exists(photo_path):
+            with open(photo_path, "rb") as f:
+                img_bytes = f.read()
+            mime = "image/png" if photo_path.lower().endswith(".png") else "image/jpeg"
+            media_b64 = f"data:{mime};base64,{base64.b64encode(img_bytes).decode()}"
+
+            payload = {
+                "to": channel_id,
+                "media": media_b64,
+                "caption": wa_text[:1000],
+            }
+            resp = requests.post("https://gate.whapi.cloud/messages/image", headers=headers, json=payload, timeout=30)
+            resp.raise_for_status()
+        else:
+            payload = {
+                "to": channel_id,
+                "body": wa_text,
+            }
+            resp = requests.post("https://gate.whapi.cloud/messages/text", headers=headers, json=payload, timeout=20)
+            resp.raise_for_status()
+
+        print(f"✅ WhatsApp Channel post sent directly via Whapi to {channel_id}!")
+    except Exception as e:
+        print(f"⚠️  Whapi WhatsApp Channel posting failed: {e}")
+
+
 def post_to_facebook(html_text, photo_path=None):
     """Post to Facebook Group via Meta Graph API (skipped if credentials not set)."""
     if not (FACEBOOK_GROUP_ID and FACEBOOK_ACCESS_TOKEN):
@@ -839,7 +909,10 @@ def run_daily_signal():
     # --- Twitter / X (optional) ---
     post_to_twitter(pair_data)
 
-    # --- WhatsApp (optional via Green API) ---
+    # --- WhatsApp Channel Direct (@newsletter via Whapi.cloud) ---
+    post_to_whatsapp_channel_whapi(post_html, chart_path)
+
+    # --- WhatsApp Group (Green API) ---
     post_to_whatsapp(post_html, chart_path)
 
     # --- Facebook Group (optional via Meta Graph API) ---
