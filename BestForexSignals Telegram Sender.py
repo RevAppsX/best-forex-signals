@@ -628,10 +628,16 @@ def post_to_twitter(pair_data):
 
 def run_daily_signal():
     """Generate and send the daily market brief across all platforms."""
-    # Weekend / Market vacation check
+    # Weekend / Market vacation check (bypassed if manually triggered by owner)
     now_utc = datetime.now(timezone.utc)
-    if now_utc.weekday() >= 5:  # Saturday = 5, Sunday = 6
+    force_run = (
+        os.environ.get("FORCE_SEND") == "true"
+        or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    )
+
+    if now_utc.weekday() >= 5 and not force_run:  # Saturday = 5, Sunday = 6
         print("🏖️ Weekend / Market Vacation: Forex markets are closed. Skipping daily signal.")
+        print("   (Tip: Manual 'Run workflow' runs can bypass this with FORCE_SEND).")
         return
 
     print("⏳ Fetching market data...")
