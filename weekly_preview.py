@@ -14,6 +14,7 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 MAIN_APP_NAME = "Best Forex Brokers"
 MAIN_APP_LINK = "https://play.google.com/store/apps/details?id=com.revapps.bestforexbrokers"
 BROKER_LINK = "https://clicks.pipaffiliates.com/c?m=131292&c=98704"
+WHATSAPP_CHANNEL_LINK = "https://whatsapp.com/channel/0029Vb9Wpao8F2p6YTGzIP2g"
 PLAY_STORE_DEV_LINK = os.environ.get(
     "PLAY_STORE_DEV_LINK",
     "https://play.google.com/store/apps/developer?id=RevApps",
@@ -106,6 +107,8 @@ def build_weekly_post(events):
         f"👉 <b><a href='{BROKER_LINK}'>CLAIM YOUR TRADING BONUS HERE</a></b>\n\n"
         f"📱 <b>COMPARE ALL REGULATED SPREADS ON ANDROID:</b>\n"
         f"👉 <b><a href='{MAIN_APP_LINK}'>DOWNLOAD {MAIN_APP_NAME.upper()}</a></b>\n\n"
+        f"💬 <b>OFFICIAL WHATSAPP CHANNEL:</b>\n"
+        f"👉 <b><a href='{WHATSAPP_CHANNEL_LINK}'>JOIN & FOLLOW ON WHATSAPP</a></b>\n\n"
         f"🌐 <b>EXPLORE OUR 200+ TRADING & FINANCE APPS:</b>\n"
         f"👉 <b><a href='{PLAY_STORE_DEV_LINK}'>VIEW FULL PORTFOLIO</a></b>"
     )

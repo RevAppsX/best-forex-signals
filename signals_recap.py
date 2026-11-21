@@ -17,6 +17,7 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 MAIN_APP_NAME = "Best Forex Brokers"
 MAIN_APP_LINK = "https://play.google.com/store/apps/details?id=com.revapps.bestforexbrokers"
 BROKER_LINK = "https://clicks.pipaffiliates.com/c?m=131292&c=98704"
+WHATSAPP_CHANNEL_LINK = "https://whatsapp.com/channel/0029Vb9Wpao8F2p6YTGzIP2g"
 
 if not BOT_TOKEN or not CHAT_ID:
     sys.exit("❌ Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
@@ -198,7 +199,9 @@ def build_recap_post():
     lines.append("💡 <i>Discipline beats emotion. Secure your daily gains, review your journal, and prepare for tomorrow's sessions!</i>\n")
     lines.append(
         f"📱 <b>COMPARE RAW SPREAD BROKERS:</b>\n"
-        f"👉 <b><a href='{MAIN_APP_LINK}'>DOWNLOAD {MAIN_APP_NAME.upper()}</a></b>"
+        f"👉 <b><a href='{MAIN_APP_LINK}'>DOWNLOAD {MAIN_APP_NAME.upper()}</a></b>\n\n"
+        f"💬 <b>OFFICIAL WHATSAPP CHANNEL:</b>\n"
+        f"👉 <b><a href='{WHATSAPP_CHANNEL_LINK}'>JOIN & FOLLOW ON WHATSAPP</a></b>"
     )
 
     return "\n".join(lines)

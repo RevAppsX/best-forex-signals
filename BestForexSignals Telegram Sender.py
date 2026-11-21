@@ -57,10 +57,20 @@ if not BOT_TOKEN or not CHAT_ID:
         "   Local:  set TELEGRAM_BOT_TOKEN=... & set TELEGRAM_CHAT_ID=..."
     )
 
-# --- Apps & Broker Links ---
+# --- Apps, WhatsApp & Broker Links ---
 MAIN_APP_NAME = "Best Forex Brokers"
 MAIN_APP_LINK = "https://play.google.com/store/apps/details?id=com.revapps.bestforexbrokers"
 BROKER_LINK = "https://clicks.pipaffiliates.com/c?m=131292&c=98704"
+WHATSAPP_CHANNEL_LINK = "https://whatsapp.com/channel/0029Vb9Wpao8F2p6YTGzIP2g"
+
+# Optional: WhatsApp API integration (Green API)
+WHATSAPP_INSTANCE_ID = os.environ.get("WHATSAPP_INSTANCE_ID")
+WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN")
+WHATSAPP_CHAT_ID = os.environ.get("WHATSAPP_CHAT_ID")
+
+# Optional: Facebook Group integration (Meta Graph API)
+FACEBOOK_GROUP_ID = os.environ.get("FACEBOOK_GROUP_ID")
+FACEBOOK_ACCESS_TOKEN = os.environ.get("FACEBOOK_ACCESS_TOKEN")
 
 # Google Play Developer page or portfolio link (for your other 200+ apps)
 PLAY_STORE_DEV_LINK = os.environ.get(
@@ -575,6 +585,8 @@ def build_market_post(pair_data, calendar_events):
         f"👉 <b><a href='{BROKER_LINK}'>CLICK HERE TO CLAIM YOUR BONUS</a></b>\n\n"
         f"📱 <b>COMPARE ALL REGULATED BROKERS & LIVE SPREADS:</b>\n"
         f"👉 <b><a href='{MAIN_APP_LINK}'>DOWNLOAD {MAIN_APP_NAME.upper()}</a></b>\n\n"
+        f"💬 <b>OFFICIAL WHATSAPP CHANNEL:</b>\n"
+        f"👉 <b><a href='{WHATSAPP_CHANNEL_LINK}'>JOIN & FOLLOW ON WHATSAPP</a></b>\n\n"
         f"🛠️ <b>FEATURED TRADER TOOL TODAY:</b>\n"
         f"👉 <b><a href='{today_app['url']}'>{today_app['name']} — {today_app['tagline']}</a></b>\n\n"
         f"🌐 <b>EXPLORE OUR 200+ APPS ON GOOGLE PLAY:</b>\n"
@@ -708,6 +720,70 @@ def post_to_twitter(pair_data):
         print(f"⚠️  Twitter posting failed: {e}")
 
 
+def post_to_whatsapp(html_text, photo_path=None):
+    """Post to WhatsApp Channel / Group via Green-API (skipped if credentials not set)."""
+    if not (WHATSAPP_INSTANCE_ID and WHATSAPP_API_TOKEN and WHATSAPP_CHAT_ID):
+        return
+    try:
+        import re
+        wa_text = html_text.replace("<b>", "*").replace("</b>", "*")
+        wa_text = wa_text.replace("<i>", "_").replace("</i>", "_")
+        wa_text = wa_text.replace("<code>", "```").replace("</code>", "```")
+        wa_text = re.sub(r"<a href='([^']+)'>([^<]+)</a>", r"\2 (\1)", wa_text)
+        wa_text = re.sub(r"<[^>]+>", "", wa_text)
+
+        base_url = f"https://api.green-api.com/waInstance{WHATSAPP_INSTANCE_ID}"
+        if photo_path and os.path.exists(photo_path):
+            file_url = f"{base_url}/sendFileByUpload/{WHATSAPP_API_TOKEN}"
+            with open(photo_path, "rb") as f:
+                requests.post(
+                    file_url,
+                    data={"chatId": WHATSAPP_CHAT_ID, "caption": wa_text[:1000]},
+                    files={"file": f},
+                    timeout=30,
+                )
+        else:
+            msg_url = f"{base_url}/sendMessage/{WHATSAPP_API_TOKEN}"
+            requests.post(
+                msg_url,
+                json={"chatId": WHATSAPP_CHAT_ID, "message": wa_text},
+                timeout=20,
+            )
+        print("✅ WhatsApp post sent.")
+    except Exception as e:
+        print(f"⚠️  WhatsApp posting failed: {e}")
+
+
+def post_to_facebook(html_text, photo_path=None):
+    """Post to Facebook Group via Meta Graph API (skipped if credentials not set)."""
+    if not (FACEBOOK_GROUP_ID and FACEBOOK_ACCESS_TOKEN):
+        return
+    try:
+        import re
+        fb_text = re.sub(r"<a href='([^']+)'>([^<]+)</a>", r"\2 (\1)", html_text)
+        fb_text = re.sub(r"<[^>]+>", "", fb_text)
+
+        if photo_path and os.path.exists(photo_path):
+            url = f"https://graph.facebook.com/v19.0/{FACEBOOK_GROUP_ID}/photos"
+            with open(photo_path, "rb") as f:
+                requests.post(
+                    url,
+                    data={"caption": fb_text, "access_token": FACEBOOK_ACCESS_TOKEN},
+                    files={"source": f},
+                    timeout=30,
+                )
+        else:
+            url = f"https://graph.facebook.com/v19.0/{FACEBOOK_GROUP_ID}/feed"
+            requests.post(
+                url,
+                data={"message": fb_text, "access_token": FACEBOOK_ACCESS_TOKEN},
+                timeout=20,
+            )
+        print("✅ Facebook Group post sent.")
+    except Exception as e:
+        print(f"⚠️  Facebook posting failed: {e}")
+
+
 # ======================== MAIN ========================
 
 def run_daily_signal():
@@ -760,6 +836,12 @@ def run_daily_signal():
 
     # --- Twitter / X (optional) ---
     post_to_twitter(pair_data)
+
+    # --- WhatsApp (optional via Green API) ---
+    post_to_whatsapp(post_html, chart_path)
+
+    # --- Facebook Group (optional via Meta Graph API) ---
+    post_to_facebook(post_html, chart_path)
 
     print("🎉 All done!")
 

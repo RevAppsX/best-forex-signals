@@ -14,6 +14,7 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 MAIN_APP_NAME = "Best Forex Brokers"
 MAIN_APP_LINK = "https://play.google.com/store/apps/details?id=com.revapps.bestforexbrokers"
+WHATSAPP_CHANNEL_LINK = "https://whatsapp.com/channel/0029Vb9Wpao8F2p6YTGzIP2g"
 MYFXBOOK_CALENDAR_LINK = "https://www.myfxbook.com/forex-economic-calendar"
 
 MAJOR_CURRENCIES = ("USD", "EUR", "GBP", "JPY", "AUD", "CAD", "NZD", "CHF")
@@ -94,7 +95,9 @@ def build_tomorrow_post(events, tomorrow_date):
     lines.append("━━━━━━━━━━━━━━━━━━━━")
     lines.append(
         f"📱 <b>COMPARE LOW SPREAD BROKERS:</b>\n"
-        f"👉 <b><a href='{MAIN_APP_LINK}'>DOWNLOAD {MAIN_APP_NAME.upper()}</a></b>"
+        f"👉 <b><a href='{MAIN_APP_LINK}'>DOWNLOAD {MAIN_APP_NAME.upper()}</a></b>\n\n"
+        f"💬 <b>OFFICIAL WHATSAPP CHANNEL:</b>\n"
+        f"👉 <b><a href='{WHATSAPP_CHANNEL_LINK}'>JOIN & FOLLOW ON WHATSAPP</a></b>"
     )
 
     return "\n".join(lines)
