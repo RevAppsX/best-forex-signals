@@ -733,23 +733,25 @@ def post_to_whatsapp(html_text, photo_path=None):
         wa_text = re.sub(r"<[^>]+>", "", wa_text)
 
         base_url = f"https://api.green-api.com/waInstance{WHATSAPP_INSTANCE_ID}"
-        if photo_path and os.path.exists(photo_path):
-            file_url = f"{base_url}/sendFileByUpload/{WHATSAPP_API_TOKEN}"
-            with open(photo_path, "rb") as f:
+        chat_ids = [cid.strip() for cid in WHATSAPP_CHAT_ID.split(",") if cid.strip()]
+        for target_id in chat_ids:
+            if photo_path and os.path.exists(photo_path):
+                file_url = f"{base_url}/sendFileByUpload/{WHATSAPP_API_TOKEN}"
+                with open(photo_path, "rb") as f:
+                    requests.post(
+                        file_url,
+                        data={"chatId": target_id, "caption": wa_text[:1000]},
+                        files={"file": f},
+                        timeout=30,
+                    )
+            else:
+                msg_url = f"{base_url}/sendMessage/{WHATSAPP_API_TOKEN}"
                 requests.post(
-                    file_url,
-                    data={"chatId": WHATSAPP_CHAT_ID, "caption": wa_text[:1000]},
-                    files={"file": f},
-                    timeout=30,
+                    msg_url,
+                    json={"chatId": target_id, "message": wa_text},
+                    timeout=20,
                 )
-        else:
-            msg_url = f"{base_url}/sendMessage/{WHATSAPP_API_TOKEN}"
-            requests.post(
-                msg_url,
-                json={"chatId": WHATSAPP_CHAT_ID, "message": wa_text},
-                timeout=20,
-            )
-        print("✅ WhatsApp post sent.")
+        print("✅ WhatsApp post sent to all targets.")
     except Exception as e:
         print(f"⚠️  WhatsApp posting failed: {e}")
 
