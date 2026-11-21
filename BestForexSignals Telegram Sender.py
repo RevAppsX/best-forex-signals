@@ -787,9 +787,39 @@ def post_to_whatsapp_channel_whapi(html_text, photo_path=None):
                 nl_resp = requests.get("https://gate.whapi.cloud/newsletters", headers=headers, timeout=15)
                 if nl_resp.ok:
                     newsletters = nl_resp.json().get("newsletters", [])
-                    if newsletters:
-                        channel_id = newsletters[0].get("id")
-                        print(f"📡 Whapi auto-detected channel: {newsletters[0].get('name')} ({channel_id})")
+                    print(f"📡 Found {len(newsletters)} WhatsApp channels in Whapi:")
+                    for nl in newsletters:
+                        nid = nl.get("id", "")
+                        nname = nl.get("name", "")
+                        nrole = nl.get("role", "")
+                        ninvite = nl.get("invite", "")
+                        print(f"   • {nname} | Role: {nrole} | ID: {nid} | Invite: {ninvite}")
+
+                    # Priority 1: Match by invite code (0029Vb9Wpao8F2p6YTGzIP2g)
+                    target_code = "0029Vb9Wpao8F2p6YTGzIP2g"
+                    for nl in newsletters:
+                        if target_code in str(nl):
+                            channel_id = nl.get("id")
+                            print(f"🎯 Matched target channel by invite code: {nl.get('name')} ({channel_id})")
+                            break
+
+                    # Priority 2: Match by admin/owner role
+                    if not channel_id:
+                        for nl in newsletters:
+                            role = str(nl.get("role", "")).upper()
+                            if role in ("ADMIN", "OWNER", "CREATOR"):
+                                channel_id = nl.get("id")
+                                print(f"🎯 Matched admin/owner channel: {nl.get('name')} ({channel_id})")
+                                break
+
+                    # Priority 3: Match by keyword
+                    if not channel_id:
+                        for nl in newsletters:
+                            name = str(nl.get("name", "")).lower()
+                            if any(k in name for k in ("forex", "signal", "broker", "best")):
+                                channel_id = nl.get("id")
+                                print(f"🎯 Matched keyword channel: {nl.get('name')} ({channel_id})")
+                                break
             except Exception as e:
                 print(f"⚠️  Whapi newsletter lookup: {e}")
 
