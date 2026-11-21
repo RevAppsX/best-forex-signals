@@ -9,17 +9,26 @@ from datetime import datetime, timezone
 import time
 import requests
 
-# --- Chart dependencies (optional but recommended) ---
+# Set stdout/stderr to UTF-8 to prevent Windows terminal charmap encoding issues
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+import pandas as pd
+
+# --- Chart dependencies (optional for local testing, installed in GitHub Actions) ---
 try:
     import matplotlib
     matplotlib.use("Agg")  # Headless backend for CI
     import matplotlib.pyplot as plt
     import mplfinance as mpf
-    import pandas as pd
     CHARTS_ENABLED = True
 except ImportError:
     CHARTS_ENABLED = False
-    print("ℹ️  Chart generation disabled (pip install mplfinance to enable).")
+    print("[INFO] Chart plotting library not installed locally (will run in GitHub Actions).")
 
 # --- Twitter dependency (optional) ---
 try:
@@ -137,45 +146,124 @@ def fetch_yahoo_ohlc(ticker_symbol, range_period="5d", interval="1d"):
     }
 
 
-def calculate_pivots(ohlc, decimals=4):
-    """Calculate current price, % change, and Classic Pivot / R1 / S1."""
-    closes, highs, lows = ohlc["closes"], ohlc["highs"], ohlc["lows"]
-    valid = [
-        i for i, c in enumerate(closes)
-        if c is not None and highs[i] is not None and lows[i] is not None
-    ]
-    if len(valid) < 2:
+def calculate_signals(ohlc, decimals=4):
+    """
+    Calculate institutional trading signals:
+    - Directional Bias (BUY / SELL / BUY ON DIP / SELL ON RALLY)
+    - Actionable Entry Zone, Stop Loss (SL), Take Profit (TP1 & TP2)
+    - Daily Pivots (Classic Pivot, R1, S1)
+    - 20 EMA, 14 ATR, and 14 RSI for technical confirmation
+    """
+    closes = pd.Series([c for c in ohlc["closes"] if c is not None])
+    highs = pd.Series([h for h in ohlc["highs"] if h is not None])
+    lows = pd.Series([l for l in ohlc["lows"] if l is not None])
+
+    if len(closes) < 15:
         return None
 
-    curr, prev = valid[-1], valid[-2]
-    price = float(closes[curr])
-    pc    = float(closes[prev])
-    ph    = float(highs[prev])
-    pl    = float(lows[prev])
-    pct   = ((price - pc) / pc) * 100
-    pivot = (ph + pl + pc) / 3
-    r1    = 2 * pivot - pl
-    s1    = 2 * pivot - ph
-    arrow = "🟢 ▲" if pct >= 0 else "🔴 ▼"
+    curr_price = float(closes.iloc[-1])
+    prev_close = float(closes.iloc[-2])
+    prev_high = float(highs.iloc[-2])
+    prev_low = float(lows.iloc[-2])
+
+    pct_change = ((curr_price - prev_close) / prev_close) * 100
+
+    # Daily Pivots
+    pivot = (prev_high + prev_low + prev_close) / 3
+    r1 = 2 * pivot - prev_low
+    s1 = 2 * pivot - prev_high
+
+    # ATR (14-period Average True Range for volatility-based SL/TP)
+    tr = pd.concat(
+        [
+            highs - lows,
+            (highs - closes.shift()).abs(),
+            (lows - closes.shift()).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    atr = float(tr.rolling(14).mean().iloc[-1])
+    if pd.isna(atr) or atr <= 0:
+        atr = curr_price * 0.008
+
+    # 20 EMA
+    ema20 = float(closes.ewm(span=20).mean().iloc[-1])
+
+    # 14 RSI
+    delta = closes.diff()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / (loss.replace(0, 0.0001))
+    rsi = float((100 - (100 / (1 + rs))).iloc[-1])
+    if pd.isna(rsi):
+        rsi = 50.0
+
+    # Determine Actionable Signal Setup
+    if curr_price >= pivot and curr_price >= ema20:
+        action = "🟢 BUY / LONG"
+        entry_low = curr_price - 0.15 * atr
+        entry_high = curr_price + 0.10 * atr
+        sl = curr_price - 1.2 * atr
+        tp1 = curr_price + 1.2 * atr
+        tp2 = curr_price + 2.4 * atr
+        rationale = f"Bullish structure above Daily Pivot & 20 EMA (RSI: {rsi:.0f})"
+    elif curr_price < pivot and curr_price < ema20:
+        action = "🔴 SELL / SHORT"
+        entry_low = curr_price - 0.10 * atr
+        entry_high = curr_price + 0.15 * atr
+        sl = curr_price + 1.2 * atr
+        tp1 = curr_price - 1.2 * atr
+        tp2 = curr_price - 2.4 * atr
+        rationale = f"Bearish momentum below Daily Pivot & 20 EMA (RSI: {rsi:.0f})"
+    elif curr_price >= pivot:
+        action = "🟢 BUY ON DIP"
+        entry_low = max(s1, curr_price - 0.4 * atr)
+        entry_high = curr_price
+        sl = s1 - 0.5 * atr
+        tp1 = r1
+        tp2 = r1 + 1.0 * atr
+        rationale = f"Holding above Daily Pivot. Look for pullback entry near support (RSI: {rsi:.0f})"
+    else:
+        action = "🔴 SELL ON RALLY"
+        entry_low = curr_price
+        entry_high = min(r1, curr_price + 0.4 * atr)
+        sl = r1 + 0.5 * atr
+        tp1 = s1
+        tp2 = s1 - 1.0 * atr
+        rationale = f"Rejected below Daily Pivot. Look for rally fade near resistance (RSI: {rsi:.0f})"
+
+    arrow = "🟢 ▲" if pct_change >= 0 else "🔴 ▼"
 
     return {
-        "price": round(price, decimals),
-        "price_str":  f"{price:.{decimals}f}",
-        "change_str": f"{arrow} {pct:+.2f}%",
+        "price": round(curr_price, decimals),
+        "price_str": f"{curr_price:.{decimals}f}",
+        "change_str": f"{arrow} {pct_change:+.2f}%",
+        "action": action,
+        "entry_low": round(entry_low, decimals),
+        "entry_high": round(entry_high, decimals),
+        "entry_str": f"{entry_low:.{decimals}f} – {entry_high:.{decimals}f}",
+        "sl": round(sl, decimals),
+        "sl_str": f"{sl:.{decimals}f}",
+        "tp1": round(tp1, decimals),
+        "tp1_str": f"{tp1:.{decimals}f}",
+        "tp2": round(tp2, decimals),
+        "tp2_str": f"{tp2:.{decimals}f}",
         "pivot": round(pivot, decimals),
-        "r1":    round(r1, decimals),
-        "s1":    round(s1, decimals),
         "pivot_str": f"{pivot:.{decimals}f}",
-        "r1_str":    f"{r1:.{decimals}f}",
-        "s1_str":    f"{s1:.{decimals}f}",
+        "r1": round(r1, decimals),
+        "r1_str": f"{r1:.{decimals}f}",
+        "s1": round(s1, decimals),
+        "s1_str": f"{s1:.{decimals}f}",
+        "rsi": round(rsi, 1),
+        "rationale": rationale,
     }
 
 
 def get_pair_data(pair):
-    """Fetch data and calculate pivots for one currency pair."""
+    """Fetch data and calculate actionable signals for one currency pair."""
     try:
-        ohlc = fetch_yahoo_ohlc(pair["ticker"])
-        return calculate_pivots(ohlc, pair["decimals"])
+        ohlc = fetch_yahoo_ohlc(pair["ticker"], range_period="1mo", interval="1d")
+        return calculate_signals(ohlc, pair["decimals"])
     except Exception as e:
         print(f"⚠️  Error fetching {pair['name']}: {e}")
         return None
@@ -222,9 +310,9 @@ def get_economic_calendar():
 
 # ======================== CHART GENERATION ========================
 
-def generate_chart(ticker_symbol, pair_name, pivot, r1, s1):
-    """Generate a professional candlestick chart with pivot levels."""
-    if not CHARTS_ENABLED:
+def generate_chart(ticker_symbol, pair_name, stats):
+    """Generate a professional TradingView-style candlestick chart with visual Entry, SL, and TP levels."""
+    if not CHARTS_ENABLED or stats is None:
         return None
     try:
         ohlc = fetch_yahoo_ohlc(ticker_symbol, range_period="1mo", interval="1d")
@@ -243,11 +331,11 @@ def generate_chart(ticker_symbol, pair_name, pivot, r1, s1):
             index=pd.DatetimeIndex(dates),
         )
         df = df.dropna()
-        if len(df) < 3:
+        if len(df) < 5:
             print(f"⚠️  Not enough data to chart {pair_name}")
             return None
 
-        # TradingView-inspired dark theme
+        # TradingView dark theme
         mc = mpf.make_marketcolors(
             up="#26a69a", down="#ef5350", edge="inherit",
             wick={"up": "#26a69a", "down": "#ef5350"},
@@ -259,38 +347,44 @@ def generate_chart(ticker_symbol, pair_name, pivot, r1, s1):
             y_on_right=True, rc={"font.size": 10},
         )
 
+        entry_mid = (stats["entry_low"] + stats["entry_high"]) / 2
+        sl = stats["sl"]
+        tp1 = stats["tp1"]
+        tp2 = stats["tp2"]
+
         hlines = dict(
-            hlines=[pivot, r1, s1],
-            colors=["#ffd700", "#26a69a", "#ef5350"],
-            linestyle=["--", "--", "--"],
-            linewidths=[1.3, 1.0, 1.0],
+            hlines=[entry_mid, sl, tp1, tp2],
+            colors=["#29b6f6", "#ef5350", "#26a69a", "#ffd700"],
+            linestyle=["--", "-", "--", "--"],
+            linewidths=[1.2, 1.4, 1.2, 1.2],
         )
 
         date_str = datetime.now(timezone.utc).strftime("%d %b %Y")
-        filepath = os.path.join(tempfile.gettempdir(), "chart.png")
+        filepath = os.path.join(tempfile.gettempdir(), "signal_chart.png")
 
         fig, axes = mpf.plot(
             df, type="candle", style=style,
-            title=f"\n{pair_name}  •  Daily  •  {date_str}",
+            title=f"\n{pair_name} — {stats['action']}\nTrade Setup & Key Target Levels • {date_str}",
             hlines=hlines, figsize=(10, 5.5),
             tight_layout=True, returnfig=True,
         )
 
-        # Label each pivot line inside the chart
+        # Label each signal line inside the chart
         ax = axes[0]
         xmin, xmax = ax.get_xlim()
-        x_pos = xmin + (xmax - xmin) * 0.01
+        x_pos = xmin + (xmax - xmin) * 0.015
         for val, label, color in [
-            (pivot, "Pivot", "#ffd700"),
-            (r1,    "R1",    "#26a69a"),
-            (s1,    "S1",    "#ef5350"),
+            (entry_mid, f"ENTRY ZONE: {entry_mid:,.2f}", "#29b6f6"),
+            (sl,        f"STOP LOSS: {sl:,.2f}",         "#ef5350"),
+            (tp1,       f"TP 1: {tp1:,.2f}",             "#26a69a"),
+            (tp2,       f"TP 2: {tp2:,.2f}",             "#ffd700"),
         ]:
             ax.text(
-                x_pos, val, f" {label}: {val:,.2f} ",
+                x_pos, val, f" {label} ",
                 color=color, fontsize=8.5, va="center", fontweight="bold",
                 bbox=dict(
-                    boxstyle="round,pad=0.2", facecolor="#131722",
-                    edgecolor=color, alpha=0.85,
+                    boxstyle="round,pad=0.25", facecolor="#131722",
+                    edgecolor=color, alpha=0.9,
                 ),
             )
 
@@ -299,7 +393,7 @@ def generate_chart(ticker_symbol, pair_name, pivot, r1, s1):
             facecolor="#131722", edgecolor="none", pad_inches=0.3,
         )
         plt.close(fig)
-        print(f"📊 Chart saved → {filepath}")
+        print(f"📊 Signal chart saved → {filepath}")
         return filepath
 
     except Exception as e:
@@ -349,26 +443,46 @@ def build_calendar_section(events):
 
 
 def build_market_post(pair_data, calendar_events):
-    """Build the main Telegram market brief in HTML."""
+    """Build the main actionable Telegram signal brief in HTML."""
     now_utc = datetime.now(timezone.utc)
     date_str = now_utc.strftime("%d %b %Y")
     tip = DAILY_TIPS[now_utc.day % len(DAILY_TIPS)]
     today_app = ROTATING_APPS[now_utc.day % len(ROTATING_APPS)]
 
-    lines = [f"📊 <b>DAILY MARKET BRIEF & KEY LEVELS ({date_str})</b>\n"]
+    lines = [
+        f"🎯 <b>DAILY FOREX & GOLD SIGNALS ({date_str})</b>",
+        "<i>Algorithmic VIP setups with precise Entry, Stop Loss (SL), and Take Profit (TP) targets:</i>\n",
+    ]
 
     for pair, stats in pair_data:
         if stats is None:
             continue
         p = pair["prefix"]
-        lines.append(
-            f"{pair['emoji']} <b>{pair['name'].upper()}:</b> "
-            f"{p}{stats['price_str']} ({stats['change_str']})\n"
-            f"   • Pivot: <code>{stats['pivot_str']}</code> "
-            f"| R1: <code>{stats['r1_str']}</code> "
-            f"| S1: <code>{stats['s1_str']}</code>\n"
-        )
 
+        # Featured layout for Gold
+        if pair["ticker"] == "GC=F":
+            lines.append("━━━━━━━━━━━━━━━━━━━━")
+            lines.append(
+                f"🥇 <b>GOLD (XAU/USD) — FEATURED SETUP:</b>\n"
+                f"• <b>Signal:</b> <b>{stats['action']}</b>\n"
+                f"• <b>Live Price:</b> {p}{stats['price_str']} ({stats['change_str']})\n"
+                f"• <b>Entry Zone:</b> <code>{p}{stats['entry_str']}</code>\n"
+                f"• <b>Stop Loss (SL):</b> <code>{p}{stats['sl_str']}</code>\n"
+                f"• <b>Take Profit 1:</b> <code>{p}{stats['tp1_str']}</code> (1:1 Target)\n"
+                f"• <b>Take Profit 2:</b> <code>{p}{stats['tp2_str']}</code> (1:2 Runner)\n"
+                f"• <b>Confirmation:</b> <i>{stats['rationale']}</i>\n"
+            )
+        else:
+            lines.append("━━━━━━━━━━━━━━━━━━━━")
+            lines.append(
+                f"{pair['emoji']} <b>{pair['name'].upper()} SETUP:</b>\n"
+                f"• <b>Signal:</b> <b>{stats['action']}</b> ({stats['change_str']})\n"
+                f"• <b>Entry Zone:</b> <code>{p}{stats['entry_str']}</code>\n"
+                f"• <b>Stop Loss (SL):</b> <code>{p}{stats['sl_str']}</code> | <b>TP:</b> <code>{p}{stats['tp1_str']}</code>\n"
+                f"• <b>Key Levels:</b> Pivot: <code>{stats['pivot_str']}</code> | R1: <code>{stats['r1_str']}</code> | S1: <code>{stats['s1_str']}</code>\n"
+            )
+
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
     lines.append(build_calendar_section(calendar_events))
     lines.append(f"{tip}\n")
     lines.append("━━━━━━━━━━━━━━━━━━━━")
@@ -388,20 +502,14 @@ def build_market_post(pair_data, calendar_events):
 def build_twitter_text(pair_data):
     """Build a ≤280-char teaser for X / Twitter."""
     date_str = datetime.now(timezone.utc).strftime("%d %b")
-    parts = [f"📊 Daily Forex Levels — {date_str}\n"]
+    parts = [f"🎯 Daily Forex Signals — {date_str}\n"]
     for pair, stats in pair_data[:2]:  # Gold + EUR/USD
         if stats is None:
             continue
         p = pair["prefix"]
-        parts.append(
-            f"{pair['emoji']} {pair['name']}: {p}{stats['price_str']} "
-            f"({stats['change_str']})"
-        )
-        parts.append(
-            f"  P: {stats['pivot_str']} | R1: {stats['r1_str']} "
-            f"| S1: {stats['s1_str']}\n"
-        )
-    parts.append(f"👉 Full levels free: {TELEGRAM_GROUP_LINK}")
+        parts.append(f"{pair['emoji']} {pair['name']}: {stats['action']}")
+        parts.append(f"  Entry: {p}{stats['entry_str']} | SL: {p}{stats['sl_str']} | TP: {p}{stats['tp1_str']}\n")
+    parts.append(f"👉 Full setups: {TELEGRAM_GROUP_LINK}")
     return "\n".join(parts)[:280]
 
 
@@ -445,11 +553,11 @@ def post_to_discord(pair_data, calendar_events):
                 continue
             p = pair["prefix"]
             fields.append({
-                "name": f"{pair['emoji']} {pair['name']}",
+                "name": f"{pair['emoji']} {pair['name']} — {stats['action']}",
                 "value": (
-                    f"**{p}{stats['price_str']}** ({stats['change_str']})\n"
-                    f"Pivot: `{stats['pivot_str']}` | R1: `{stats['r1_str']}` "
-                    f"| S1: `{stats['s1_str']}`"
+                    f"**Entry Zone:** `{p}{stats['entry_str']}`\n"
+                    f"**SL:** `{p}{stats['sl_str']}` | **TP:** `{p}{stats['tp1_str']}`\n"
+                    f"*{stats['rationale']}*"
                 ),
                 "inline": False,
             })
@@ -532,24 +640,26 @@ def run_daily_signal():
     print("📅 Fetching economic calendar...")
     calendar_events = get_economic_calendar()
 
-    # Generate Gold chart
+    # Generate Gold chart with visual Entry, SL, and TP lines
     gold_pair, gold_stats = pair_data[0]
     chart_path = None
     if gold_stats:
-        print("📊 Generating Gold chart...")
+        print("📊 Generating Gold signal chart...")
         chart_path = generate_chart(
-            gold_pair["ticker"], gold_pair["name"],
-            gold_stats["pivot"], gold_stats["r1"], gold_stats["s1"],
+            gold_pair["ticker"], gold_pair["name"], gold_stats
         )
 
     # Build text message
     post_html = build_market_post(pair_data, calendar_events)
 
     # --- Telegram ---
-    if chart_path:
+    if chart_path and gold_stats:
         send_telegram_photo(
             chart_path,
-            caption=f"📊 <b>{gold_pair['name']} — Daily Chart</b>",
+            caption=(
+                f"🎯 <b>{gold_pair['name']} — {gold_stats['action']}</b>\n"
+                f"📈 Entry: <code>${gold_stats['entry_str']}</code> | 🛑 SL: <code>${gold_stats['sl_str']}</code> | 🎯 TP: <code>${gold_stats['tp1_str']}</code>"
+            ),
         )
     send_telegram_message(post_html)
 
