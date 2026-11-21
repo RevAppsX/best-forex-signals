@@ -2,8 +2,9 @@ name: Daily Forex Signals Bot
 
 on:
   schedule:
-    # Monday to Friday at 06:05 UTC (09:05 AM in UTC+3 / TRT / Local Time)
-    - cron: '5 6 * * 1-5'
+    # 7 Days a week at 06:05 UTC (09:05 AM in UTC+3 / TRT / Local Time)
+    # Weekdays: Full Forex, Gold & Crypto | Weekends: 24/7 Crypto & Bullion
+    - cron: '5 6 * * *'
   workflow_dispatch:
     inputs:
       force_send:

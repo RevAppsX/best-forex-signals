@@ -114,10 +114,12 @@ DAILY_TIPS = [
 ]
 
 PAIRS = [
-    {"ticker": "GC=F",    "name": "Gold (XAU/USD)", "emoji": "🥇", "decimals": 2, "prefix": "$"},
-    {"ticker": "EURUSD=X", "name": "EUR/USD",       "emoji": "💶", "decimals": 4, "prefix": ""},
-    {"ticker": "GBPUSD=X", "name": "GBP/USD",       "emoji": "💷", "decimals": 4, "prefix": ""},
-    {"ticker": "USDJPY=X", "name": "USD/JPY",       "emoji": "💴", "decimals": 2, "prefix": ""},
+    {"ticker": "GC=F",     "name": "Gold (XAU/USD)", "emoji": "🥇", "decimals": 2, "prefix": "$", "type": "metal"},
+    {"ticker": "BTC-USD",  "name": "Bitcoin (BTC)",  "emoji": "₿",  "decimals": 0, "prefix": "$", "type": "crypto"},
+    {"ticker": "ETH-USD",  "name": "Ethereum (ETH)", "emoji": "⟠",  "decimals": 1, "prefix": "$", "type": "crypto"},
+    {"ticker": "EURUSD=X", "name": "EUR/USD",        "emoji": "💶", "decimals": 4, "prefix": "",  "type": "forex"},
+    {"ticker": "GBPUSD=X", "name": "GBP/USD",        "emoji": "💷", "decimals": 4, "prefix": "",  "type": "forex"},
+    {"ticker": "USDJPY=X", "name": "USD/JPY",        "emoji": "💴", "decimals": 2, "prefix": "",  "type": "forex"},
 ]
 
 
@@ -144,6 +146,76 @@ def fetch_yahoo_ohlc(ticker_symbol, range_period="5d", interval="1d"):
         "closes":  quotes["close"],
         "volumes": quotes.get("volume", []),
     }
+
+
+def calculate_currency_strength():
+    """Calculate 24h Currency Strength Matrix across 8 major currencies."""
+    tickers = {
+        "EUR": ("EURUSD=X", False),
+        "GBP": ("GBPUSD=X", False),
+        "AUD": ("AUDUSD=X", False),
+        "NZD": ("NZDUSD=X", False),
+        "JPY": ("USDJPY=X", True),
+        "CAD": ("USDCAD=X", True),
+        "CHF": ("USDCHF=X", True),
+    }
+
+    scores = {}
+    for curr, (sym, inverted) in tickers.items():
+        try:
+            ohlc = fetch_yahoo_ohlc(sym, range_period="5d", interval="1d")
+            closes = [c for c in ohlc["closes"] if c is not None]
+            if len(closes) >= 2:
+                pct = ((closes[-1] - closes[-2]) / closes[-2]) * 100
+                scores[curr] = -pct if inverted else pct
+            else:
+                scores[curr] = 0.0
+        except Exception:
+            scores[curr] = 0.0
+
+    scores["USD"] = -sum(scores.values()) / max(len(scores), 1)
+
+    min_val = min(scores.values())
+    max_val = max(scores.values())
+    diff = max_val - min_val if max_val != min_val else 1.0
+
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return ranked, min_val, diff
+
+
+def build_currency_strength_section():
+    """Format Currency Strength Matrix as HTML."""
+    try:
+        ranked, min_val, diff = calculate_currency_strength()
+        if not ranked:
+            return ""
+
+        lines = [
+            "💪 <b>CURRENCY STRENGTH MATRIX (24H):</b>",
+        ]
+        for i, (curr, raw) in enumerate(ranked):
+            score = 1.0 + (raw - min_val) / diff * 9.0
+            bars = max(1, min(10, int(round(score))))
+            flag = CURRENCY_FLAGS.get(curr, "🌐")
+            if i < 2:
+                bar_str = "🟩" * bars + "⬜" * (10 - bars)
+                status = "Strong"
+            elif i > len(ranked) - 3:
+                bar_str = "🟥" * bars + "⬜" * (10 - bars)
+                status = "Weak"
+            else:
+                bar_str = "🟨" * bars + "⬜" * (10 - bars)
+                status = "Neutral"
+
+            lines.append(f"• {flag} <b>{curr}:</b> <code>{bar_str}</code> {score:.1f} ({status})")
+
+        strongest = ranked[0][0]
+        weakest = ranked[-1][0]
+        lines.append(f"\n🔥 <b>Momentum Edge:</b> BUY <b>{strongest}/{weakest}</b> (Strongest vs Weakest)\n")
+        return "\n".join(lines)
+    except Exception as e:
+        print(f"⚠️  Error calculating currency strength: {e}")
+        return ""
 
 
 def calculate_signals(ohlc, decimals=4):
@@ -446,24 +518,29 @@ def build_market_post(pair_data, calendar_events):
     """Build the main actionable Telegram signal brief in HTML."""
     now_utc = datetime.now(timezone.utc)
     date_str = now_utc.strftime("%d %b %Y")
+    is_weekend = now_utc.weekday() >= 5
     tip = DAILY_TIPS[now_utc.day % len(DAILY_TIPS)]
     today_app = ROTATING_APPS[now_utc.day % len(ROTATING_APPS)]
 
-    lines = [
-        f"🎯 <b>DAILY FOREX & GOLD SIGNALS ({date_str})</b>",
-        "<i>Algorithmic VIP setups with precise Entry, Stop Loss (SL), and Take Profit (TP) targets:</i>\n",
-    ]
+    if is_weekend:
+        title = f"⚡ <b>WEEKEND 24/7 CRYPTO & BULLION SIGNALS ({date_str})</b>"
+        subtitle = "<i>Actionable setups for Bitcoin, Ethereum & Gold while traditional forex banks are closed:</i>\n"
+    else:
+        title = f"🎯 <b>DAILY FOREX, GOLD & CRYPTO SIGNALS ({date_str})</b>"
+        subtitle = "<i>Algorithmic VIP setups with precise Entry, Stop Loss (SL), and Take Profit (TP) targets:</i>\n"
+
+    lines = [title, subtitle]
 
     for pair, stats in pair_data:
         if stats is None:
             continue
         p = pair["prefix"]
 
-        # Featured layout for Gold
-        if pair["ticker"] == "GC=F":
+        # Featured layout for Gold and Bitcoin
+        if pair["ticker"] in ("GC=F", "BTC-USD"):
             lines.append("━━━━━━━━━━━━━━━━━━━━")
             lines.append(
-                f"🥇 <b>GOLD (XAU/USD) — FEATURED SETUP:</b>\n"
+                f"{pair['emoji']} <b>{pair['name'].upper()} — FEATURED SETUP:</b>\n"
                 f"• <b>Signal:</b> <b>{stats['action']}</b>\n"
                 f"• <b>Live Price:</b> {p}{stats['price_str']} ({stats['change_str']})\n"
                 f"• <b>Entry Zone:</b> <code>{p}{stats['entry_str']}</code>\n"
@@ -481,6 +558,13 @@ def build_market_post(pair_data, calendar_events):
                 f"• <b>Stop Loss (SL):</b> <code>{p}{stats['sl_str']}</code> | <b>TP:</b> <code>{p}{stats['tp1_str']}</code>\n"
                 f"• <b>Key Levels:</b> Pivot: <code>{stats['pivot_str']}</code> | R1: <code>{stats['r1_str']}</code> | S1: <code>{stats['s1_str']}</code>\n"
             )
+
+    # Add Currency Strength Matrix on weekdays
+    if not is_weekend:
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
+        cs_section = build_currency_strength_section()
+        if cs_section:
+            lines.append(cs_section)
 
     lines.append("━━━━━━━━━━━━━━━━━━━━")
     lines.append(build_calendar_section(calendar_events))
@@ -628,43 +712,45 @@ def post_to_twitter(pair_data):
 
 def run_daily_signal():
     """Generate and send the daily market brief across all platforms."""
-    # Weekend / Market vacation check (bypassed if manually triggered by owner)
     now_utc = datetime.now(timezone.utc)
-    force_run = (
-        os.environ.get("FORCE_SEND") == "true"
-        or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-    )
+    is_weekend = now_utc.weekday() >= 5  # Saturday = 5, Sunday = 6
 
-    if now_utc.weekday() >= 5 and not force_run:  # Saturday = 5, Sunday = 6
-        print("🏖️ Weekend / Market Vacation: Forex markets are closed. Skipping daily signal.")
-        print("   (Tip: Manual 'Run workflow' runs can bypass this with FORCE_SEND).")
-        return
+    # Select active assets: On weekends, focus on 24/7 Crypto + Gold bullion levels
+    if is_weekend:
+        print("⚡ Weekend detected: Running 24/7 Crypto & Bullion signal engine...")
+        active_pairs = [p for p in PAIRS if p["type"] in ("crypto", "metal")]
+    else:
+        print("🎯 Weekday detected: Running full Forex, Gold & Crypto signal engine...")
+        active_pairs = PAIRS
 
     print("⏳ Fetching market data...")
-    pair_data = [(pair, get_pair_data(pair)) for pair in PAIRS]
+    pair_data = [(pair, get_pair_data(pair)) for pair in active_pairs]
 
     print("📅 Fetching economic calendar...")
     calendar_events = get_economic_calendar()
 
-    # Generate Gold chart with visual Entry, SL, and TP lines
-    gold_pair, gold_stats = pair_data[0]
+    # Generate Chart: On weekends chart Bitcoin; on weekdays chart Gold
+    chart_pair = active_pairs[1] if (is_weekend and len(active_pairs) > 1) else active_pairs[0]
+    chart_stats = next((s for p, s in pair_data if p["ticker"] == chart_pair["ticker"]), None)
+
     chart_path = None
-    if gold_stats:
-        print("📊 Generating Gold signal chart...")
+    if chart_stats:
+        print(f"📊 Generating {chart_pair['name']} signal chart...")
         chart_path = generate_chart(
-            gold_pair["ticker"], gold_pair["name"], gold_stats
+            chart_pair["ticker"], chart_pair["name"], chart_stats
         )
 
     # Build text message
     post_html = build_market_post(pair_data, calendar_events)
 
     # --- Telegram ---
-    if chart_path and gold_stats:
+    if chart_path and chart_stats:
+        p = chart_pair["prefix"]
         send_telegram_photo(
             chart_path,
             caption=(
-                f"🎯 <b>{gold_pair['name']} — {gold_stats['action']}</b>\n"
-                f"📈 Entry: <code>${gold_stats['entry_str']}</code> | 🛑 SL: <code>${gold_stats['sl_str']}</code> | 🎯 TP: <code>${gold_stats['tp1_str']}</code>"
+                f"🎯 <b>{chart_pair['name']} — {chart_stats['action']}</b>\n"
+                f"📈 Entry: <code>{p}{chart_stats['entry_str']}</code> | 🛑 SL: <code>{p}{chart_stats['sl_str']}</code> | 🎯 TP: <code>{p}{chart_stats['tp1_str']}</code>"
             ),
         )
     send_telegram_message(post_html)

@@ -1,0 +1,46 @@
+name: Session Opening Bells
+
+on:
+  schedule:
+    # London Open: 07:00 UTC (10:00 TRT / UTC+3) Mon-Fri
+    - cron: '0 7 * * 1-5'
+    # New York / Wall Street Open: 13:00 UTC (16:00 TRT / UTC+3) Mon-Fri
+    - cron: '0 13 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      session:
+        description: 'Session bell to send'
+        type: choice
+        options:
+          - london
+          - ny
+        default: london
+
+jobs:
+  send-bell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Run Session Bell
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python session_bells.py --session ${{ inputs.session }}
+          else
+            python session_bells.py
+          fi
