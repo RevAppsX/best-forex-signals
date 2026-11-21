@@ -2,8 +2,8 @@ name: Daily Forex Signals Bot
 
 on:
   schedule:
-    # Monday to Friday at 09:00 UTC (Forex markets are closed on weekends)
-    - cron: '0 9 * * 1-5'
+    # Monday to Friday at 06:05 UTC (09:05 AM in UTC+3 / TRT / Local Time)
+    - cron: '5 6 * * 1-5'
   workflow_dispatch:
 
 jobs:
